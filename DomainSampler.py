@@ -17,7 +17,7 @@ class DomainSampler:
         self.min_x = np.min(self.points[0])
         self.max_x = np.max(self.points[0])
 
-        self.samples = [[], []]
+        self.samples = [[], []]  # temporary, will be deleted in the future
 
     # SAMPLE_LINE_PROBE: Pre-samples domain using line probes
     def sample_line_probe(self, n_y=50, n_x=50):
@@ -85,7 +85,7 @@ class DomainSampler:
                 int_idx = int_idx + 2
         return
 
-    # TURN_CHECK: Checks if chosen point lies in the domain using degree-sum
+    # DEGREE_CHECK: Checks if chosen point lies in the domain using degree-sum
     def degree_check(self, x, y):
         deg_sum = 0.0
         for idx in range(self.point_count):
@@ -99,12 +99,9 @@ class DomainSampler:
             if pp == 0 or nn == 0:
                 return False  # points which define the domain are excluded
 
-            product = pn / (math.sqrt(pp) * math.sqrt(nn))
-            if abs(product) > 1.0:
-                return False  # for rounding errors
-
+            product = np.clip(pn / (math.sqrt(pp) * math.sqrt(nn)), -1.0, 1.0)
             deg_sum = deg_sum + np.sign(p2 * (n1 - p1 * pn / pp)) * math.acos(product)
-        return ~(deg_sum < 5.0)
+        return abs(deg_sum - 2 * np.pi) < 1.0e-5
 
     # SAMPLE_DEGREE_CHECK: Pre-samples domain using degree-sum check
     def sample_degree_check(self, n_x=50, n_y=50):
@@ -118,48 +115,46 @@ class DomainSampler:
         return
 
     # (incomplete) SAMPLE_DEGREE_CHECK_HIERARCHICAL: Pre-samples domain using degree-sum check with square hierarchy
-    def sample_degree_check_hierarchical(self, n_x=10, n_y=10):
+    def sample_degree_check_hierarchical(self, n_x=10, n_y=10, layers=3):
         self.samples = [[], []]
 
-        lx = np.linspace(self.min_x, self.max_x, n_x)
-        ly = np.linspace(self.min_y, self.max_y, n_y)
-        dw = (self.max_x - self.min_x) / n_x
-        dh = (self.max_y - self.min_y) / n_y
+        dx = (self.max_x - self.min_x) / n_x
+        dy = (self.max_y - self.min_y) / n_y
+        included_squares = []
+        squares_to_check = [Square(self.min_x + x_idx * dx,
+                                   self.min_y + y_idx * dy,
+                                   self.min_x + (x_idx+1) * dx,
+                                   self.min_y + (y_idx+1) * dy) for x_idx in range(n_x) for y_idx in range(n_y)]
+        squares_to_check_ = []
 
-        grid_points = [[a, b] for a in ly for b in lx]
-        inclusions = [self.degree_check(grid_points[idx][0], grid_points[idx][1]) for idx in range(n_x * n_y)]
-        squares = [Square() for a in range((n_x-1)*(n_y-1))]
+        for layer in range(layers):
+            dx = dx / 2
+            dy = dy / 2
 
-        for y_idx in range(n_y-1):
-            for x_idx in range(n_x-1):
-                idx = x_idx + y_idx * n_x
+            for square in squares_to_check:
+                deg_check = int(self.degree_check(square.min_x, square.min_y)) + \
+                            int(self.degree_check(square.max_x, square.min_y)) + \
+                            int(self.degree_check(square.min_x, square.max_y)) + \
+                            int(self.degree_check(square.max_x, square.max_y))
 
-                top_right = x_idx + y_idx * (n_x-1)
-                top_left = top_right - 1
-                bottom_right = top_right - n_x + 1
-                bottom_left = top_right - n_x
+                if deg_check == 4:
+                    included_squares.append(square)
+                elif deg_check > 0:
+                    squares_to_check_.append(Square(square.min_x, square.min_y, square.min_x + dx, square.min_y + dy))
+                    squares_to_check_.append(Square(square.min_x + dx, square.min_y, square.max_x, square.min_y + dy))
+                    squares_to_check_.append(Square(square.min_x, square.min_y + dy, square.min_x + dx, square.max_y))
+                    squares_to_check_.append(Square(square.min_x + dx, square.min_y + dy, square.max_x, square.max_y))
 
-                grid_points[x_idx + y_idx * n_x].append(bottom_left)
-                grid_points[x_idx+1 + y_idx * n_x].append(bottom_right)
-                grid_points[x_idx + (y_idx+1) * n_x].append(top_left)
-                grid_points[x_idx+1 + (y_idx+1) * n_x].append(top_right)
+            squares_to_check = squares_to_check_
+            squares_to_check_ = []
 
-                squares[bottom_left].top_right = idx
-                squares[bottom_right].top_left = idx
-                squares[top_left].bottom_right = idx
-                squares[top_right].bottom_left = idx
-
-        dw = dw / 2
-        dh = dh / 2
-
-        for square in squares:
-            if grid_points[square.top_right] and grid_points[square.top_left] and grid_points[square.bottom_right] and grid_points[square.bottom_left]:
-                square.included = True
-            else:
-                square = [Square(),
-                          Square(),
-                          Square(),
-                          Square()]
+        for square in included_squares:
+            # plt.plot(square.min_x, square.min_y, 'g+')
+            # plt.plot(square.max_x, square.min_y, 'g+')
+            # plt.plot(square.min_x, square.max_y, 'g+')
+            # plt.plot(square.max_x, square.max_y, 'g+')
+            plt.plot([square.min_x, square.max_x, square.max_x, square.min_x, square.min_x],
+                     [square.min_y, square.min_y, square.max_y, square.max_y, square.min_y], 'g')
 
         return
 
@@ -174,11 +169,11 @@ class DomainSampler:
 
 
 class Square:
-    def __init__(self):
-        self.bottom_left = 0
-        self.bottom_right = 0
-        self.top_left = 0
-        self.top_right = 0
+    def __init__(self, min_x, min_y, max_x, max_y):
+        self.min_x = min_x
+        self.min_y = min_y
+        self.max_x = max_x
+        self.max_y = max_y
 
 
 if __name__ == '__main__':
@@ -189,12 +184,13 @@ if __name__ == '__main__':
     plt.plot([ds.points[0][-1], ds.points[0][0]], [ds.points[1][-1], ds.points[1][0]], 'b')
 
     # ds.sample_line_probe()
-    ds.sample_degree_check()
-
+    # ds.sample_degree_check()
     # ds.plot()
 
-    for counter in range(25):
-        r = ds.random_sample()
-        plt.plot(r[0], r[1], 'r+')
+    ds.sample_degree_check_hierarchical(11, 11, 3)
+
+    # for counter in range(25):
+    #    r = ds.random_sample()
+    #    plt.plot(r[0], r[1], 'r+')
 
     plt.show()
