@@ -25,12 +25,14 @@ class DomainSampler:
         # stored as two arrays contained in one: [[X], [Y]]
         # in example, [[0,1,0], [0,1,2]] defines a triangle with vertices [0,0], [1,1], [0,2]
         self.points = ordered_points
-
         self.point_count = len(self.points[1])
+
         self.min_y = np.min(self.points[1])
         self.max_y = np.max(self.points[1])
         self.min_x = np.min(self.points[0])
         self.max_x = np.max(self.points[0])
+        self.width = self.max_x - self.min_x
+        self.height = self.max_y - self.min_y
 
         self.line_probes = []
         self.line_probes_distribution = []
@@ -41,13 +43,13 @@ class DomainSampler:
 
         self.last_sampling = 'none'
 
-    # SAMPLE_LINE_PROBE: Creates domain distribution using line probes
-    def sample_line_probe(self, n_y=20):
+    # SAMPLE_LINE_PROBE: Creates domain distribution using horizontal line probes
+    def sample_line_probe(self, n_y=20, nudge_ratio_y=0.01):
         self.line_probes = []
         self.line_probes_distribution = []
 
         # uniformly generated lines
-        for y in np.linspace(self.min_y, self.max_y, n_y):
+        for y in np.linspace(self.min_y + self.height * nudge_ratio_y, self.max_y - self.height * nudge_ratio_y, n_y):
             idx_shift = 0
             while self.points[1][idx_shift-1] == y:
                 idx_shift = idx_shift + 1
@@ -123,16 +125,21 @@ class DomainSampler:
         return (abs(deg_sum) - 2 * np.pi)**2 < 1.0e-5
 
     # SAMPLE_DEGREE_CHECK_HIERARCHICAL: Creates domain distribution using degree-sum check
-    def sample_degree_check_hierarchical(self, n_x=10, n_y=10, layers=3):
+    def sample_degree_check_hierarchical(self, n_x=10, n_y=10, layers=4, nudge_ratio_x=0.001, nudge_ratio_y=0.001):
         self.squares = []
         self.squares_distribution = []
 
-        dx = (self.max_x - self.min_x) / n_x
-        dy = (self.max_y - self.min_y) / n_y
-        squares_to_check = [Square(self.min_x + x_idx * dx,
-                                   self.min_y + y_idx * dy,
-                                   self.min_x + (x_idx+1) * dx,
-                                   self.min_y + (y_idx+1) * dy) for x_idx in range(n_x) for y_idx in range(n_y)]
+        min_x_nudged = self.min_x + self.width * nudge_ratio_x
+        max_x_nudged = self.max_x - self.width * nudge_ratio_x
+        min_y_nudged = self.min_y + self.height * nudge_ratio_y
+        max_y_nudged = self.max_y - self.height * nudge_ratio_y
+
+        dx = (max_x_nudged - min_x_nudged) / n_x
+        dy = (max_y_nudged - min_y_nudged) / n_y
+        squares_to_check = [Square(min_x_nudged + x_idx * dx,
+                                   min_y_nudged + y_idx * dy,
+                                   min_x_nudged + (x_idx+1) * dx,
+                                   min_y_nudged + (y_idx+1) * dy) for x_idx in range(n_x) for y_idx in range(n_y)]
         squares_to_check_ = []
 
         for layer in range(layers):
@@ -219,16 +226,21 @@ class DomainSampler:
 if __name__ == '__main__':
 
     # ds = DomainSampler([[1, 1, 0, 0], [0, 1, 1, 0]])  # Square
-    # ds = DomainSampler([[-0.5, 0.9, 1.7, -1, 0], [-1, -1.2, 2, 1, 0.2]]) # Ordinary shape
+    ds = DomainSampler([[-0.5, 0.9, 1.7, -1, 0], [-1, -1.2, 2, 1, 0.2]])  # Ordinary shape
     # ds = DomainSampler([[0, 1, 1, 2, 2, 3, 3, 0], [0, 0, 1, 1, 0, 0, 2, 2]])  # Non-convex box horizontal shape
     # ds = DomainSampler([[0, -1, -2, -1, 0, 1, 1, 0, -1, -2, -1], [0, 1, 1, 2, 2, 1, -1, -2, -2, -1, -1]])  # Pacman
-    ds = DomainSampler([[0, 1, 1, 0], [0, 1, 0, 1]])  # Invalid shape
+    # ds = DomainSampler([[0, 0.5, 1, 1, 0.5, 0], [0, 1, 0, 1, 0, 1]])  # Invalid shape? still works fine
+    # ds = DomainSampler([[0, 1, 2], [1, 1, 1]])  # Invalid shape, not 2D
+    # ds = DomainSampler([[1, 1, 1], [0, 1, 2]])  # Invalid shape, not 2D
+    # ds = DomainSampler([[0, 0.5, 1, 0], [0, 0.9, 1, 1]])  # very acute corners (<= 45°)
+    # ds = DomainSampler([[0, 0, 1, 0.35, 1], [0, 1, 1, 0.5, 0]])  # very acute corners (<= 45°)
 
-    # ds.sample_line_probe()
-    ds.sample_degree_check_hierarchical()
+    ds.sample_line_probe()
+    # ds.sample_degree_check_hierarchical()
     r = ds.sample(50)
 
     ds.plot_domain()
     ds.plot_distribution()
     plt.plot(r[0], r[1], 'r+')
+
     plt.show()
