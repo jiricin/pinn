@@ -1,7 +1,22 @@
 import math
-
 import numpy as np
 import matplotlib.pyplot as plt
+
+
+class BoundaryGroup:
+    def __init__(self, point_indices, label, color='blue'):
+        self.indices = point_indices
+        self.label = label
+        self.distribution = []
+        self.length = 0
+        self.color = color
+
+
+class LineProbe:
+    def __init__(self, y, min_x, max_x):
+        self.y = y
+        self.min_x = min_x
+        self.max_x = max_x
 
 
 class Square:
@@ -10,13 +25,6 @@ class Square:
         self.min_y = min_y
         self.max_x = max_x
         self.max_y = max_y
-
-
-class LineProbe:
-    def __init__(self, y, min_x, max_x):
-        self.y = y
-        self.min_x = min_x
-        self.max_x = max_x
 
 
 class DomainSampler:
@@ -34,6 +42,8 @@ class DomainSampler:
         self.width = self.max_x - self.min_x
         self.height = self.max_y - self.min_y
 
+        self.boundary_groups = []
+
         self.line_probes = []
         self.line_probes_distribution = []
 
@@ -41,10 +51,44 @@ class DomainSampler:
         self.squares_counts = []
         self.squares_distribution = []
 
-        self.last_sampling = 'none'
+        self.last_sampling = None
 
-    # SAMPLE_LINE_PROBE: Creates domain distribution using horizontal line probes
-    def sample_line_probe(self, n_y=20, nudge_ratio_y=0.01):
+        self.epsilon = np.finfo(float).eps
+
+    # BOUNDARY_GROUP_ADD: Adds a boundary group to the list and labels it for further use
+    def boundary_group_add(self, point_indices, label, connected_ends=False, color='blue'):
+        if connected_ends:
+            point_indices.append(point_indices[0])
+        self.boundary_groups.append(BoundaryGroup(point_indices, label, color))
+        return
+
+    # BOUNDARY_GROUP_REMOVE: Removes a boundary group from the list by label
+    def boundary_group_remove(self, label):
+        self.boundary_groups = [bg for bg in self.boundary_groups if not bg.label == label]
+        return
+
+    # BOUNDARY_GROUP_DISTRIBUTE: Creates domain boundary distribution; distributes all boundary groups if label is None
+    def boundary_group_distribute(self, label=None):
+        if len(self.boundary_groups) <= 0:
+            self.boundary_group_add(list(range(len(self.points[0]))), 'default', connected_ends=True)
+
+        for bg in self.boundary_groups:
+            if label is None or bg.label == label:
+                bg.distribution = []
+                boundary_point_count = len(bg.indices)
+                idx = 0
+                while idx < boundary_point_count - 1:
+                    dx = self.points[0][bg.indices[idx+1]] - self.points[0][bg.indices[idx]]
+                    dy = self.points[1][bg.indices[idx+1]] - self.points[1][bg.indices[idx]]
+                    bg.distribution.append(math.sqrt(dx**2 + dy**2))
+                    bg.length = bg.length + bg.distribution[-1]
+                    idx = idx + 1
+                if bg.length > 0:
+                    bg.distribution = np.asarray(bg.distribution) / bg.length
+        return
+
+    # DISTRIBUTE_LINE_PROBE: Creates domain interior distribution using horizontal line probes
+    def distribute_line_probe(self, n_y=20, nudge_ratio_y=0.01):
         self.line_probes = []
         self.line_probes_distribution = []
 
@@ -98,8 +142,10 @@ class DomainSampler:
 
             # generate line probes and their distribution
             for idx in range(0, len(ordered_intervals), 2):
-                self.line_probes.append(LineProbe(y, ordered_intervals[idx], ordered_intervals[idx+1]))
-                self.line_probes_distribution.append(ordered_intervals[idx+1] - ordered_intervals[idx])
+                x_min = ordered_intervals[idx] + self.epsilon
+                x_max = ordered_intervals[idx+1] - self.epsilon
+                self.line_probes.append(LineProbe(y, x_min, x_max))
+                self.line_probes_distribution.append(x_max - x_min)
 
         lengths_sum = np.sum(self.line_probes_distribution)
         if lengths_sum > 0:
@@ -107,7 +153,7 @@ class DomainSampler:
         self.last_sampling = 'line_probe'
         return
 
-    # DEGREE_CHECK: Checks if chosen point lies in the domain using degree-sum
+    # DEGREE_CHECK: Checks if chosen point lies in the domain (interior) using degree-sum
     def degree_check(self, x, y):
         deg_sum = 0.0
         for idx in range(self.point_count):
@@ -124,8 +170,8 @@ class DomainSampler:
             deg_sum = deg_sum + np.sign(pn_cross) * math.acos(pn_dot_norm)
         return (abs(deg_sum) - 2 * np.pi)**2 < 1.0e-5
 
-    # SAMPLE_DEGREE_CHECK_HIERARCHICAL: Creates domain distribution using degree-sum check
-    def sample_degree_check_hierarchical(self, n_x=10, n_y=10, layers=4, nudge_ratio_x=0.001, nudge_ratio_y=0.001):
+    # DISTRIBUTE_DEGREE_CHECK_HIERARCHICAL: Creates domain interior distribution using degree-sum check
+    def distribute_degree_check_hierarchical(self, n_x=10, n_y=10, layers=4, nudge_ratio_x=0.001, nudge_ratio_y=0.001):
         self.squares = []
         self.squares_distribution = []
 
@@ -177,27 +223,73 @@ class DomainSampler:
 
     # PLOT_DOMAIN: Plots specified domain
     def plot_domain(self):
-        plt.plot(self.points[0], self.points[1], 'b')
-        plt.plot([self.points[0][-1], self.points[0][0]], [self.points[1][-1], self.points[1][0]], 'b')
+        plt.plot(self.points[0], self.points[1], color='gray', linestyle='dashed')
+        plt.plot([self.points[0][-1], self.points[0][0]],
+                 [self.points[1][-1], self.points[1][0]],
+                 color='gray', linestyle='dashed')
         return
 
-    # PLOT_DISTRIBUTION: Plots generated distribution
-    def plot_distribution(self, distribution='last_sampled'):
+    # PLOT_DISTRIBUTION_BOUNDARY: Plots generated boundary distribution
+    def plot_distribution_boundary(self, label=None):
+        for bg in self.boundary_groups:
+            plt.plot([self.points[0][idx] for idx in bg.indices],
+                     [self.points[1][idx] for idx in bg.indices],
+                     color=bg.color, linestyle='solid')
+        return
+
+    # PLOT_DISTRIBUTION_INTERIOR: Plots generated interior distribution
+    def plot_distribution_interior(self, distribution='last_sampled'):
         if distribution == 'last_sampled':
             distribution = self.last_sampling
 
         if distribution == 'line_probe':
             for line_probe in self.line_probes:
-                plt.plot([line_probe.min_x, line_probe.max_x], [line_probe.y, line_probe.y], 'g')
+                plt.plot([line_probe.min_x, line_probe.max_x], [line_probe.y, line_probe.y],
+                         color='green', linestyle='solid')
 
         elif distribution == 'degree_check':
             for square in self.squares:
                 plt.plot([square.min_x, square.max_x, square.max_x, square.min_x, square.min_x],
-                         [square.min_y, square.min_y, square.max_y, square.max_y, square.min_y], 'g')
+                         [square.min_y, square.min_y, square.max_y, square.max_y, square.min_y],
+                         color='green', linestyle='solid')
         return
 
-    # SAMPLE: Chooses one random sample from pre-sampled domain
-    def sample(self, count=1, distribution='last_sampled'):
+    # SAMPLE_BOUNDARY: Generates samples from distributed domain boundary
+    def sample_boundary(self, label, count=1):
+        macro_bg_indices = []
+        macro_boundary_distribution = []
+        lengths_sum = 0
+
+        for idx, bg in enumerate(self.boundary_groups):
+            if bg.label == label:
+                macro_bg_indices.append(idx)
+                macro_boundary_distribution.append(bg.length)
+                lengths_sum = lengths_sum + bg.length
+
+        if lengths_sum <= 0:
+            return []
+
+        x = []
+        y = []
+        macro_boundary_distribution = np.asarray(macro_boundary_distribution) / lengths_sum
+        rand_bg_idx_vec = np.random.choice(macro_bg_indices, count, p=macro_boundary_distribution)
+        for idx in macro_bg_indices:
+            sample_count = rand_bg_idx_vec.tolist().count(idx)
+            rand_line_idx_vec = np.random.choice(range(len(self.boundary_groups[idx].distribution)),
+                                                 sample_count,
+                                                 p=self.boundary_groups[idx].distribution)
+            for lix in rand_line_idx_vec:
+                x1 = self.points[0][self.boundary_groups[idx].indices[lix]]
+                x2 = self.points[0][self.boundary_groups[idx].indices[lix + 1]]
+                y1 = self.points[1][self.boundary_groups[idx].indices[lix]]
+                y2 = self.points[1][self.boundary_groups[idx].indices[lix + 1]]
+                scale = np.random.uniform(0, 1)
+                x.append(x1 + scale * (x2 - x1))
+                y.append(y1 + scale * (y2 - y1))
+        return [x, y]
+
+    # SAMPLE_INTERIOR: Generates samples from distributed domain interior
+    def sample_interior(self, count=1, distribution='last_sampled'):
         if distribution == 'last_sampled':
             distribution = self.last_sampling
 
@@ -226,21 +318,32 @@ class DomainSampler:
 if __name__ == '__main__':
 
     # ds = DomainSampler([[1, 1, 0, 0], [0, 1, 1, 0]])  # Square
-    ds = DomainSampler([[-0.5, 0.9, 1.7, -1, 0], [-1, -1.2, 2, 1, 0.2]])  # Ordinary shape
+    # ds = DomainSampler([[-0.5, 0.9, 1.7, -1, 0], [-1, -1.2, 2, 1, 0.2]])  # Ordinary shape
     # ds = DomainSampler([[0, 1, 1, 2, 2, 3, 3, 0], [0, 0, 1, 1, 0, 0, 2, 2]])  # Non-convex box horizontal shape
-    # ds = DomainSampler([[0, -1, -2, -1, 0, 1, 1, 0, -1, -2, -1], [0, 1, 1, 2, 2, 1, -1, -2, -2, -1, -1]])  # Pacman
+    ds = DomainSampler([[0, -1, -2, -1, 0, 1, 1, 0, -1, -2, -1], [0, 1, 1, 2, 2, 1, -1, -2, -2, -1, -1]])  # Pacman
     # ds = DomainSampler([[0, 0.5, 1, 1, 0.5, 0], [0, 1, 0, 1, 0, 1]])  # Invalid shape? still works fine
     # ds = DomainSampler([[0, 1, 2], [1, 1, 1]])  # Invalid shape, not 2D
     # ds = DomainSampler([[1, 1, 1], [0, 1, 2]])  # Invalid shape, not 2D
     # ds = DomainSampler([[0, 0.5, 1, 0], [0, 0.9, 1, 1]])  # very acute corners (<= 45°)
     # ds = DomainSampler([[0, 0, 1, 0.35, 1], [0, 1, 1, 0.5, 0]])  # very acute corners (<= 45°)
 
-    ds.sample_line_probe()
-    # ds.sample_degree_check_hierarchical()
-    r = ds.sample(50)
+    ds.boundary_group_add(list(range(0, 3)), label='Dirichlet', color='blue')
+    ds.boundary_group_add(list(range(4, 8)), label='Dirichlet', color='blue')
+    ds.boundary_group_add(list(range(2, 5)), label='Neumann', color='yellow')
+    ds.boundary_group_distribute()
+    samples_boundary_dirichlet = ds.sample_boundary('Dirichlet', 50)
+    samples_boundary_neumann = ds.sample_boundary('Neumann', 3)
 
-    ds.plot_domain()
-    ds.plot_distribution()
-    plt.plot(r[0], r[1], 'r+')
+    ds.distribute_line_probe()
+    # ds.distribute_degree_check_hierarchical()
+    samples_interior = ds.sample_interior(200)
+
+    # ds.plot_domain()
+    # ds.plot_distribution_interior()
+    ds.plot_distribution_boundary()
+
+    plt.plot(samples_interior[0], samples_interior[1], 'm+')
+    plt.plot(samples_boundary_dirichlet[0], samples_boundary_dirichlet[1], 'r+')
+    plt.plot(samples_boundary_neumann[0], samples_boundary_neumann[1], 'r+')
 
     plt.show()
