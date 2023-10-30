@@ -90,13 +90,13 @@ class DomainSampler:
         return
 
     # BOUNDARY_GROUPS_DISTRIBUTE: Creates domain boundary distribution; distributes all boundary groups if label is None
+    # if a boundary group does not exist, creates one with all boundaries and distributes it
     def boundary_groups_distribute(self, label=None):
         bg_count = len(self.boundary_groups)
         if bg_count <= 0:
-            idx = 0
-            for idx in range(0, bg_count):
+            for idx in range(len(self.boundaries)):
                 self.boundary_group_add('default', idx, [], connect_ends=True)
-                idx = idx + 1
+            label = 'default'
 
         for bg in self.boundary_groups:
             if label is None or bg.label == label:
@@ -301,8 +301,8 @@ class DomainSampler:
                          color='green', linestyle='solid')
         return
 
-    # SAMPLE_BOUNDARY: Generates samples from distributed domain boundary
-    def sample_boundary(self, label, count=1):
+    # SAMPLE_BOUNDARY: Generates samples from labeled boundary group; if label is None, samples from all boundary groups
+    def sample_boundary(self, count=1, label=None):
         macro_bg_indices = []
         macro_boundary_distribution = []
         lengths_sum = 0
@@ -311,7 +311,7 @@ class DomainSampler:
 
         # compute overall length and boundary groups' indices of distribution
         for idx, bg in enumerate(self.boundary_groups):
-            if bg.label == label:
+            if label is None or bg.label == label:
                 macro_bg_indices.append(idx)
                 macro_boundary_distribution.append(bg.length)
                 lengths_sum = lengths_sum + bg.length
@@ -368,7 +368,7 @@ class DomainSampler:
         return []
 
 
-if __name__ == '__main__':
+def example():
     boundary_1 = Boundary([[1, 1, 0, 0],
                            [0, 1, 1, 0]])
     boundary_2 = Boundary([[0.5, 0.75, 0.5, 0.25],
@@ -385,8 +385,8 @@ if __name__ == '__main__':
     ds.boundary_group_add('Neumann', 3, list(range(1, 3)), color='orange')
     ds.boundary_group_add('Neumann', 2, [], color='orange')
     ds.boundary_groups_distribute()
-    samples_boundary_dirichlet = ds.sample_boundary('Dirichlet', 100)
-    samples_boundary_neumann = ds.sample_boundary('Neumann', 40)
+    samples_boundary_dirichlet = ds.sample_boundary(100, 'Dirichlet')
+    samples_boundary_neumann = ds.sample_boundary(40, 'Neumann')
 
     # ds.distribute_line_probe()
     ds.distribute_degree_check_hierarchical()
@@ -401,3 +401,7 @@ if __name__ == '__main__':
     plt.plot(samples_boundary_neumann[0], samples_boundary_neumann[1], 'r+')
 
     plt.show()
+
+
+# if __name__ == '__main__':
+#    example()
