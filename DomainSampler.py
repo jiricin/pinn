@@ -388,8 +388,8 @@ def example():
     samples_boundary_dirichlet = ds.sample_boundary(100, 'Dirichlet')
     samples_boundary_neumann = ds.sample_boundary(40, 'Neumann')
 
-    # ds.distribute_line_probe()
-    ds.distribute_degree_check_hierarchical()
+    ds.distribute_line_probe()
+    # ds.distribute_degree_check_hierarchical()
     samples_interior = ds.sample_interior(200)
 
     ds.plot_domain()
@@ -403,5 +403,5 @@ def example():
     plt.show()
 
 
-# if __name__ == '__main__':
-#    example()
+if __name__ == '__main__':
+    example()
